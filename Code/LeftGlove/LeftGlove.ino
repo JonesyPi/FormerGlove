@@ -1,47 +1,48 @@
-#include <ArduinoBLE.h>
-#include <Nicla_System.h>
+#include "Arduino.h"
+#include "Arduino_BHY2.h"
 
-// Use standard service & characteristic UUIDs for testing
-BLEService ledService("180C");  // Simple, standard custom service
-BLEByteCharacteristic ledCharacteristic("2A56", BLERead | BLEWrite); // Byte value for on/off
+SensorXYZ accel(SENSOR_ID_ACC);
+SensorXYZ gyro(SENSOR_ID_GYRO);
 
 void setup() {
   Serial.begin(9600);
-  while (!Serial);
+  while (!Serial)
+    ;
 
-  pinMode(LED_BUILTIN, OUTPUT);  // Built-in LED on Nicla
+  BHY2.begin();
 
-  if (!BLE.begin()) {
-    Serial.println("BLE initialization failed!");
-    while (1);
-  }
-
-  BLE.setLocalName("FormerGlove");
-  BLE.setAdvertisedService(ledService);
-
-  ledService.addCharacteristic(ledCharacteristic);
-  BLE.addService(ledService);
-
-  ledCharacteristic.setValue(0);  // Default: LED off
-
-  delay(100);  // Important: Let BLE stack settle before advertising
-  BLE.advertise();
-
-  Serial.println("Bluetooth device active, waiting for connections...");
+  accel.begin();
+  gyro.begin();
 }
 
 void loop() {
-  BLE.poll();  // Handle BLE events
+  static auto printTime = millis();
 
-  if (ledCharacteristic.written()) {
-    byte value = ledCharacteristic.value();
+  // Update function should be continuously polled
+  BHY2.update();
 
-    if (value) {
-      digitalWrite(LED_BUILTIN, HIGH);
-      Serial.println("LED on");
-    } else {
-      digitalWrite(LED_BUILTIN, LOW);
-      Serial.println("LED off");
-    }
+  if (millis() - printTime >= 1000) {
+    printTime = millis();
+
+    // Accelerometer values
+    Serial.print("acc_X:");
+    Serial.print(accel.x());
+    Serial.print(",");
+    Serial.print("acc_Y:");
+    Serial.print(accel.y());
+    Serial.print(",");
+    Serial.print("acc_Z:");
+    Serial.print(accel.z());
+    Serial.print(",");
+
+    // Gyroscope values
+    Serial.print("gyro_X:");
+    Serial.print(gyro.x());
+    Serial.print(",");
+    Serial.print("gyro_Y:");
+    Serial.print(gyro.y());
+    Serial.print(",");
+    Serial.print("gyro_Z:");
+    Serial.println(gyro.z());
   }
 }
