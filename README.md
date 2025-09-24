@@ -34,4 +34,4 @@ Here, I tested the IMU sensor of the Nicla Sense, which includes an acceleromete
 
 Transfering Sensor Data between Niclas:
 
-On the right glove, I read data periodically and send it to the left glove via BLE, on which I print out the sensor data of both hands simultaneously. It is important do search the periphial by name manually as the scanForName function is inprecise with custom devices. I also implemented a one second delay after starting the scan, which is necessary for the initialisation.
+On the right glove, I read data periodically and send it to the left glove via BLE, on which I print out the sensor data of both hands simultaneously. It is important to search the periphial by name manually as the scanForName function is inprecise with custom devices. I also implemented a one second delay after starting the scan, which is necessary for the initialisation.
