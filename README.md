@@ -35,3 +35,8 @@ Here, I tested the IMU sensor of the Nicla Sense, which includes an acceleromete
 Transfering Sensor Data between Niclas:
 
 On the right glove, I read data periodically and send it to the left glove via BLE, on which I print out the sensor data of both hands simultaneously. It is important to search the periphial by name manually as the scanForName function is inprecise with custom devices. I also implemented a one second delay after starting the scan, which is necessary for the initialisation.
+
+
+Running code from VS Code:
+
+I changed the structure to have a FOlder named src with all codes in it, as this is the standard on PlatformIO. After that, I created different environments for each hand in platformio.ini and added a src filter so it uploads the right code.
