@@ -2,219 +2,103 @@
 #include "Nicla_System.h"
 #include "ArduinoBLE.h"
 #include "Arduino_BHY2.h"
-#include "ArduinoJson.h"
 
-float* handleLeftValues();
-float* handleRightValues();
-void scanForRightHand();
-void handleValuesLoop();
-void sendAsJSON(float* leftValues, float* rightValues);
-void checkBattery();
-
-BLEDevice peripheral;
-BLECharacteristic movementChar;
-
-BLEService gloveService("12345678-1234-5678-1234-56789abcdef0"); 
-BLECharacteristic combinedDataChar("12345678-1234-5678-1234-56789abcdef1", BLERead | BLENotify, 300);
-
+// Sensoren initialisieren
 SensorXYZ accel(SENSOR_ID_ACC);
 SensorXYZ gyro(SENSOR_ID_GYRO);
+
+// BLE Service & Characteristic
+BLEService gloveService("12345678-1234-5678-1234-56789abcdef0");
+BLECharacteristic movementChar("12345678-1234-5678-1234-56789abcdef1", BLERead | BLENotify, 24);
 
 void setup() {
   Serial.begin(9600);
   while (!Serial);
 
+  // Nicla Setup
   nicla::begin();
   nicla::leds.begin();
-  nicla::leds.setColor(green);
+  nicla::leds.setColor(blue);
 
-  Serial.println("Initializing BLE...");
-  BLE.begin();
+  Serial.println("\n=== LeftGlove Booting ===");
 
-  BLE.setLocalName("Former Glove");
-  BLE.setAdvertisedService(gloveService);
-  gloveService.addCharacteristic(combinedDataChar);
-  BLE.addService(gloveService);
-  combinedDataChar.writeValue("{}"); 
-
-  BLE.advertise();
-
-  Serial.println("BLE service for LeftGlove started.");
-
-  Serial.println("Initializing BHY2...");
+  // Sensoren starten
+  Serial.println("Initializing BHY2 sensors...");
   BHY2.begin();
-
   accel.begin();
   gyro.begin();
+  Serial.println("Sensors initialized successfully.");
 
-  
-  BLE.scan();
-  delay(1000);
-  Serial.println("Setup complete.");
+  // BLE Setup
+  Serial.println("Starting BLE...");
+  if (!BLE.begin()) {
+    Serial.println("❌ BLE start failed!");
+    while (1);
+  }
+
+  BLE.setDeviceName("LeftGlove");
+  BLE.setLocalName("LeftGlove");
+  BLE.setAdvertisedService(gloveService);
+
+  gloveService.addCharacteristic(movementChar);
+  BLE.addService(gloveService);
+
+  BLE.advertise();
+  nicla::leds.setColor(green);
+
+  Serial.println("✅ BLE advertising started as 'LeftGlove'.");
+  Serial.println("Waiting for connection from app...");
 }
 
 void loop() {
-  scanForRightHand();
-  
-  handleValuesLoop();
+  BLEDevice central = BLE.central();
 
-  peripheral = BLEDevice();
-  BLE.scan();
-  checkBattery();
-  delay(1000);
-}
+  // Wenn sich ein Gerät verbindet (z. B. App)
+  if (central) {
+    Serial.print("📱 Connected to central device: ");
+    Serial.println(central.address());
+    nicla::leds.setColor(yellow);
 
-void handleValuesLoop(){
-  Serial.println("Attempting to connect...");
-  if (peripheral.connect()) {
-    Serial.println("Connected to RightGlove.");
-
-    Serial.println("Discovering attributes...");
-    peripheral.discoverAttributes();
-
-    movementChar = peripheral.characteristic("2A58");
-    if (!movementChar) {
-      Serial.println("Characteristic not found!");
-      peripheral.disconnect();
-      return;
-    }
-    Serial.println("Movement characteristic found.");
-
-    while (peripheral.connected()) {
+    while (central.connected()) {
       BHY2.update();
 
-      float* leftValues = handleLeftValues();
-      float* rightValues = handleRightValues();
-      sendAsJSON(leftValues, rightValues);
-      checkBattery();
+      float ax = accel.x();
+      float ay = accel.y();
+      float az = accel.z();
+      float gx = gyro.x();
+      float gy = gyro.y();
+      float gz = gyro.z();
 
-      delay(1000);
+      // Daten serialisiert in Byte-Array
+      uint8_t buffer[24];
+      memcpy(&buffer[0], &ax, 4);
+      memcpy(&buffer[4], &ay, 4);
+      memcpy(&buffer[8], &az, 4);
+      memcpy(&buffer[12], &gx, 4);
+      memcpy(&buffer[16], &gy, 4);
+      memcpy(&buffer[20], &gz, 4);
+
+      // Senden über BLE
+      movementChar.writeValue(buffer, sizeof(buffer));
+
+      // Debug-Ausgabe
+      Serial.println("\n--- LeftGlove Sensor Data ---");
+      Serial.print("acc_X: "); Serial.print(ax, 3);
+      Serial.print(" | acc_Y: "); Serial.print(ay, 3);
+      Serial.print(" | acc_Z: "); Serial.println(az, 3);
+
+      Serial.print("gyro_X: "); Serial.print(gx, 3);
+      Serial.print(" | gyro_Y: "); Serial.print(gy, 3);
+      Serial.print(" | gyro_Z: "); Serial.println(gz, 3);
+
+      Serial.println("Data sent via BLE ✅");
+      delay(100); // ~10 Hz
     }
 
-    Serial.println("Disconnected from RightGlove.");
-  } else {
-    Serial.println("Connection failed.");
-  }
-}
-
-float* handleLeftValues() {
-  float ax = accel.x(), ay = accel.y(), az = accel.z();  
-  float gx = gyro.x(), gy = gyro.y(), gz = gyro.z();
-
-  static float leftValues[6] = {ax, ay, az, gx, gy, gz};
-
-  Serial.println("Left Glove:");
-    Serial.print("acc_X: "); Serial.print(accel.x()); Serial.print(", ");
-    Serial.print("acc_Y: "); Serial.print(accel.y()); Serial.print(", ");
-    Serial.print("acc_Z: "); Serial.println(accel.z());
-
-    Serial.print("gyro_X: "); Serial.print(gyro.x()); Serial.print(", ");
-    Serial.print("gyro_Y: "); Serial.print(gyro.y()); Serial.print(", ");
-    Serial.print("gyro_Z: "); Serial.println(gyro.z());
-
-  Serial.println();
-
-  return leftValues;
-}
-
-float* handleRightValues() {
-  byte buffer[24];
-  if (!movementChar.readValue(buffer, 24)) {
-    Serial.println("Failed to read from RightGlove.");
-    return;
-  }
-
-  float ax, ay, az, gx, gy, gz;
-    memcpy(&ax, &buffer[0], 4);
-    memcpy(&ay, &buffer[4], 4);
-    memcpy(&az, &buffer[8], 4);
-    memcpy(&gx, &buffer[12], 4);
-    memcpy(&gy, &buffer[16], 4);
-    memcpy(&gz, &buffer[20], 4);
-
-  static float rightValues[6] = {ax, ay, az, gx, gy, gz};
-
-  Serial.println("Right Glove:");
-    Serial.print("acc_X: "); Serial.print(ax); Serial.print(", ");
-    Serial.print("acc_Y: "); Serial.print(ay); Serial.print(", ");
-    Serial.print("acc_Z: "); Serial.println(az);
-
-    Serial.print("gyro_X: "); Serial.print(gx); Serial.print(", ");
-    Serial.print("gyro_Y: "); Serial.print(gy); Serial.print(", ");
-    Serial.print("gyro_Z: "); Serial.println(gz);
-
-  Serial.println();
-
-  return rightValues;
-}
-
-void scanForRightHand(){
-  if (!peripheral) {
-    Serial.println("Scanning for devices...");
-    peripheral = BLE.available();
-
-    if (peripheral) {
-      Serial.print("Found device: ");
-      Serial.println(peripheral.localName());
-
-      if (peripheral.localName() != "RightGlove") {
-        Serial.println("Not the right device, ignoring.");
-        peripheral = BLEDevice(); 
-        return;
-      }
-
-      Serial.println("RightGlove found!");
-
-      BLE.stopScan();
-    }
-
-    delay(500);
-    return;
-  }
-}
-
-void sendAsJSON(float* leftValues, float* rightValues){
-  StaticJsonDocument<256> doc;
-
-  JsonArray left = doc.createNestedArray("left");
-  JsonArray right = doc.createNestedArray("right");
-
-  for (int i = 0; i < 6; i++) {
-    left.add(leftValues[i]);
-  }
-
-  for (int i = 0; i < 6; i++) {
-    right.add(rightValues[i]);
-  }
-
-  String output;
-  serializeJson(doc, output);
-
-  Serial.println("Sending combined glove data as JSON:");
-  Serial.println(output);
-  Serial.println();
-
-  combinedDataChar.writeValue(output.c_str());
-}
-
-void checkBattery(){
-  auto operatingStatus = nicla::getOperatingStatus();
-  
-  switch (operatingStatus)
-  {
-  case OperatingStatus::Charging:
-    nicla::leds.setColor(yellow);
-    break;
-  case OperatingStatus::ChargingComplete:
-    nicla::disableCharging();
-    nicla::leds.setColor(100, 200, 255);
-    break;
-  default:
-    float batteryVoltage = nicla::getCurrentBatteryVoltage();
-    if (batteryVoltage < 3.55){
-      nicla::leds.setColor(red);
-      nicla::enableCharging(125);
-    }
-    break;
+    // Verbindung getrennt
+    Serial.println("⚠️ Central disconnected.");
+    nicla::leds.setColor(red);
+    BLE.advertise();
+    Serial.println("Re-advertising as LeftGlove...");
   }
 }
