@@ -12,6 +12,7 @@ void loop() {
   bool usb = !nicla::_pmic.runsOnBattery(BQ25120A_ADDRESS);
   bool full = nicla::getBatteryChargeLevel() == BatteryChargeLevel::Full;
   bool charging = nicla::getOperatingStatus() == OperatingStatus::Charging;
+  float voltpercent = nicla::getBatteryVoltagePercentage();
 
   if(usb){
     if(full){
@@ -29,7 +30,11 @@ void loop() {
   } else {
     nicla::leds.setColor(blue);      // Rot, wenn nur Batterie
     Serial.println("Batteriebetrieb.");
-  }
-  
+    }
+
+    Serial.print("Batteriespannung: ");
+    Serial.print(voltpercent);
+    Serial.println("%");
+    
     delay(10000); // Aktualisiere alle 10 Sekunden
 }
