@@ -2,217 +2,190 @@
 #include "Nicla_System.h"
 #include "ArduinoBLE.h"
 #include "Arduino_BHY2.h"
+#include "Bench_Press_v2_inferencing.h"
 
-float* handleLeftValues();
-float* handleRightValues();
-void scanForRightHand();
-void handleValuesLoop();
-void sendAsJSON(float* leftValues, float* rightValues);
-void checkBattery();
+const int MAX_SAMPLES = 27;
+const int AXES_PER_SAMPLE = 12;
+const int SHIFT_STEP = 4;
+const int SAMPLES_TO_KEEP = MAX_SAMPLES - SHIFT_STEP;
+const unsigned long SAMPLE_INTERVAL_MS = 100;
 
-BLEDevice peripheral;
-BLECharacteristic movementChar;
+float features[EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE];
+float label_sums[EI_CLASSIFIER_LABEL_COUNT];
 
-BLEService gloveService("12345678-1234-5678-1234-56789abcdef0"); 
-BLECharacteristic combinedDataChar("12345678-1234-5678-1234-56789abcdef1", BLERead | BLENotify, 300);
+const int READ_OFFSET = SHIFT_STEP * AXES_PER_SAMPLE;
+const size_t BYTES_TO_KEEP = SAMPLES_TO_KEEP * AXES_PER_SAMPLE * sizeof(float);
 
 SensorXYZ accel(SENSOR_ID_ACC);
 SensorXYZ gyro(SENSOR_ID_GYRO);
 
+BLEService gloveService("12345678-1234-5678-1234-56789abcdef0");
+BLECharacteristic movementChar("12345678-1234-5678-1234-56789abcdef1", BLERead | BLENotify, 24);
+
+BLEDevice rightPeripheral;
+BLECharacteristic rightDataChar;
+
+float* handleRightValues();
+float* handleLeftValues();
+void scanForRightHand();
+void fillFeatures(float* leftValues, float* rightValues, int index);
+void classifyBenchPress();
+
 void setup() {
-  Serial.begin(9600);
-  while (!Serial);
+    Serial.begin(115200);
+    nicla::begin();
+    nicla::leds.begin();
 
-  nicla::begin();
-  nicla::enableCharging(125);
-  nicla::leds.begin();
-  nicla::leds.setColor(green);
+    BHY2.begin();
+    accel.begin();
+    gyro.begin();
 
-  Serial.println("Initializing BLE...");
-  BLE.begin();
+    if (!BLE.begin()) {
+        while (1);
+    }
 
-  BLE.setLocalName("Former Glove");
-  BLE.setAdvertisedService(gloveService);
-  gloveService.addCharacteristic(combinedDataChar);
-  BLE.addService(gloveService);
-  combinedDataChar.writeValue("{}"); 
+    BLE.setDeviceName("LeftGlove");
+    BLE.setLocalName("LeftGlove");
+    BLE.setAdvertisedService(gloveService);
+    gloveService.addCharacteristic(movementChar);
+    BLE.addService(gloveService);
+    BLE.advertise();
 
-  BLE.advertise();
-
-  Serial.println("BLE service for LeftGlove started.");
-
-  Serial.println("Initializing BHY2...");
-  BHY2.begin();
-
-  accel.begin();
-  gyro.begin();
-
-  
-  BLE.scan();
-  delay(1000);
-  Serial.println("Setup complete.");
+    Serial.println("System initialized.");
 }
 
 void loop() {
-  scanForRightHand();
-  
-  handleValuesLoop();
-
-  peripheral = BLEDevice();
-  BLE.scan();
-  checkBattery();
-  delay(1000);
-}
-
-void handleValuesLoop(){
-  Serial.println("Attempting to connect...");
-  if (peripheral.connect()) {
-    Serial.println("Connected to RightGlove.");
-
-    Serial.println("Discovering attributes...");
-    peripheral.discoverAttributes();
-
-    movementChar = peripheral.characteristic("2A58");
-    if (!movementChar) {
-      Serial.println("Characteristic not found!");
-      peripheral.disconnect();
-      return;
-    }
-    Serial.println("Movement characteristic found.");
-
-    while (peripheral.connected()) {
-      BHY2.update();
-
-      float* leftValues = handleLeftValues();
-      float* rightValues = handleRightValues();
-      sendAsJSON(leftValues, rightValues);
-      checkBattery();
-
-      delay(1000);
+    if (!rightPeripheral || !rightPeripheral.connected()) {
+        nicla::leds.setColor(blue); 
+        Serial.println("RightGlove not connected. Scanning...");
+        BLE.scan(); 
+        scanForRightHand();
+        nicla::leds.setColor(green); 
     }
 
-    Serial.println("Disconnected from RightGlove.");
-  } else {
-    Serial.println("Connection failed.");
-  }
+    BLEDevice central = BLE.central();
+
+    if (central) {
+        Serial.print("📱 App Connected: ");
+        Serial.println(central.address());
+        
+        bool start_command = true; // Platzhalter
+        int total_reps = 10;       // Platzhalter
+
+        while (central.connected()) {
+            if (!rightPeripheral.connected()) {
+                Serial.println("RightGlove lost during session!");
+                break; 
+            }
+
+            if (start_command) {
+                for (int i = 0; i < total_reps; i++) {
+                    if (!central.connected() || !rightPeripheral.connected()) break;
+
+                    bool end_of_rep = false; 
+                    int measurement_count = 0;
+                    memset(features, 0, sizeof(features));
+                    memset(label_sums, 0, sizeof(label_sums));
+                    static unsigned long lastSampleTime = 0;
+
+                    while (end_of_rep == false) {
+                        if (!central.connected() || !rightPeripheral.connected()) break;
+
+                        unsigned long now = millis();
+
+                        if (now - lastSampleTime >= SAMPLE_INTERVAL_MS) {
+                            lastSampleTime = now;
+
+                            float* rightValues = handleRightValues();
+                            float* leftValues = handleLeftValues();
+
+                            if (rightValues != nullptr && leftValues != nullptr) {
+                                fillFeatures(leftValues, rightValues, measurement_count);
+                                measurement_count++;
+
+                                if (measurement_count >= MAX_SAMPLES) {
+                                    classifyBenchPress();
+                                    measurement_count = SAMPLES_TO_KEEP;
+                                }
+                            }
+
+                            // Ende der Wiederholung erkennen
+                        
+                        }
+                    }
+
+                    classifyBenchPress();
+                    int best_label_idx = 0;
+                    for (size_t j = 1; j < EI_CLASSIFIER_LABEL_COUNT; j++) {
+                        if (label_sums[j] > label_sums[best_label_idx]) {
+                            best_label_idx = j;
+                        }
+                    }
+                    Serial.print("Rep finished: "); Serial.println(best_label_idx);
+                }
+                start_command = false; 
+            }
+        }
+        Serial.println("⚠️ App disconnected or Partner lost.");
+        nicla::leds.setColor(red);
+        BLE.advertise(); 
+    }
 }
 
-float* handleLeftValues() {
-  float ax = accel.x(), ay = accel.y(), az = accel.z();  
-  float gx = gyro.x(), gy = gyro.y(), gz = gyro.z();
-
-  static float leftValues[6] = {ax, ay, az, gx, gy, gz};
-
-  Serial.println("Left Glove:");
-    Serial.print("acc_X: "); Serial.print(accel.x()); Serial.print(", ");
-    Serial.print("acc_Y: "); Serial.print(accel.y()); Serial.print(", ");
-    Serial.print("acc_Z: "); Serial.println(accel.z());
-
-    Serial.print("gyro_X: "); Serial.print(gyro.x()); Serial.print(", ");
-    Serial.print("gyro_Y: "); Serial.print(gyro.y()); Serial.print(", ");
-    Serial.print("gyro_Z: "); Serial.println(gyro.z());
-
-  Serial.println();
-
-  return leftValues;
+void scanForRightHand() {
+    while (true) {
+        rightPeripheral = BLE.available();
+        if (rightPeripheral) {
+            if (rightPeripheral.localName() == "RightGlove") {
+                Serial.println("Found RightGlove!");
+                if (rightPeripheral.connect()) {
+                    rightPeripheral.discoverAttributes();
+                    rightDataChar = rightPeripheral.service("180C").characteristic("2A58");
+                    if (rightDataChar) {
+                        BLE.stopScan();
+                        break;
+                    }
+                }
+            }
+        }
+        delay(10);
+    }
 }
 
 float* handleRightValues() {
-  byte buffer[24];
-  if (!movementChar.readValue(buffer, 24)) {
-    Serial.println("Failed to read from RightGlove.");
-    return;
-  }
-
-  float ax, ay, az, gx, gy, gz;
-    memcpy(&ax, &buffer[0], 4);
-    memcpy(&ay, &buffer[4], 4);
-    memcpy(&az, &buffer[8], 4);
-    memcpy(&gx, &buffer[12], 4);
-    memcpy(&gy, &buffer[16], 4);
-    memcpy(&gz, &buffer[20], 4);
-
-  static float rightValues[6] = {ax, ay, az, gx, gy, gz};
-
-  Serial.println("Right Glove:");
-    Serial.print("acc_X: "); Serial.print(ax); Serial.print(", ");
-    Serial.print("acc_Y: "); Serial.print(ay); Serial.print(", ");
-    Serial.print("acc_Z: "); Serial.println(az);
-
-    Serial.print("gyro_X: "); Serial.print(gx); Serial.print(", ");
-    Serial.print("gyro_Y: "); Serial.print(gy); Serial.print(", ");
-    Serial.print("gyro_Z: "); Serial.println(gz);
-
-  Serial.println();
-
-  return rightValues;
-}
-
-void scanForRightHand(){
-  if (!peripheral) {
-    Serial.println("Scanning for devices...");
-    peripheral = BLE.available();
-
-    if (peripheral) {
-      Serial.print("Found device: ");
-      Serial.println(peripheral.localName());
-
-      if (peripheral.localName() != "RightGlove") {
-        Serial.println("Not the right device, ignoring.");
-        peripheral = BLEDevice(); 
-        return;
-      }
-
-      Serial.println("RightGlove found!");
-
-      BLE.stopScan();
+    static float rv[6];
+    byte buffer[24];
+    if (rightDataChar && rightDataChar.readValue(buffer, 24)) {
+        memcpy(rv, buffer, 24);
+        return rv;
     }
-
-    delay(500);
-    return;
-  }
+    return nullptr;
 }
 
-void sendAsJSON(float* leftValues, float* rightValues){
-  StaticJsonDocument<256> doc;
-
-  JsonArray left = doc.createNestedArray("left");
-  JsonArray right = doc.createNestedArray("right");
-
-  for (int i = 0; i < 6; i++) {
-    left.add(leftValues[i]);
-  }
-
-  for (int i = 0; i < 6; i++) {
-    right.add(rightValues[i]);
-  }
-
-  String output;
-  serializeJson(doc, output);
-
-  Serial.println("Sending combined glove data as JSON:");
-  Serial.println(output);
-  Serial.println();
-
-  combinedDataChar.writeValue(output.c_str());
+float* handleLeftValues() {
+    BHY2.update();
+    static float lv[6];
+    lv[0] = accel.x(); lv[1] = accel.y(); lv[2] = accel.z();
+    lv[3] = gyro.x();  lv[4] = gyro.y();  lv[5] = gyro.z();
+    return lv;
 }
 
-void checkBattery(){
-  auto operatingStatus = nicla::getOperatingStatus();
-  
-  switch (operatingStatus)
-  {
-  case OperatingStatus::Charging:
-    nicla::leds.setColor(yellow);
-    break;
-  case OperatingStatus::ChargingComplete:
-    nicla::leds.setColor(100, 200, 255);
-    break;
-  default:
-    float batteryVoltage = nicla::getCurrentBatteryVoltage();
-    if (batteryVoltage < 3.55){
-      nicla::leds.setColor(red);
+void fillFeatures(float* leftValues, float* rightValues, int index) {
+    int start_pos = index * AXES_PER_SAMPLE;
+    for (size_t i = 0; i < 6; i++) {
+        features[start_pos + i] = leftValues[i];
+        features[start_pos + i + 6] = rightValues[i];
     }
-    break;
-  }
+}
+
+void classifyBenchPress() {
+    signal_t signal;
+    numpy::signal_from_buffer(features, EI_CLASSIFIER_DSP_INPUT_FRAME_SIZE, &signal);
+    ei_impulse_result_t result = { 0 };
+    if (run_classifier(&signal, &result, false) == EI_IMPULSE_OK) {
+        for (size_t i = 0; i < EI_CLASSIFIER_LABEL_COUNT; i++) {
+            label_sums[i] += result.classification[i].value;
+        }
+    }
+    memmove(features, features + READ_OFFSET, BYTES_TO_KEEP);
 }

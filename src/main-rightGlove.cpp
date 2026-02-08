@@ -4,7 +4,6 @@
 #include "Arduino_BHY2.h"
 
 void sendSensorData();
-void checkBattery();
 
 SensorXYZ accel(SENSOR_ID_ACC);
 SensorXYZ gyro(SENSOR_ID_GYRO);
@@ -15,11 +14,11 @@ BLECharacteristic movementChar("2A58",
                             24);     // 6 Floats * 4 Bytes = 24 Bytes
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
+  Serial.println("Starting RightGlove...");
   while (!Serial);
 
   nicla::begin();
-  nicla::enableCharging(125);
   nicla::leds.begin();
   nicla::leds.setColor(100, 200, 255); // light blue
 
@@ -43,11 +42,10 @@ void loop() {
 
   BHY2.update();
 
-  if (millis() - printTime >= 1000) {
+  if (millis() - printTime >= 50) {
     printTime = millis();
 
     sendSensorData();
-    checkBattery();
   }
 }
 
@@ -63,26 +61,5 @@ void sendSensorData(){
   memcpy(&buffer[16], &gy, 4);
   memcpy(&buffer[20], &gz, 4);
 
-  movementChar.writeValue(buffer, 24);
-}
-
-void checkBattery(){
-  auto operatingStatus = nicla::getOperatingStatus();
-  
-  switch (operatingStatus)
-  {
-  case OperatingStatus::Charging:
-    nicla::leds.setColor(yellow);
-    break;
-  case OperatingStatus::ChargingComplete:
-    nicla::leds.setColor(100, 200, 255);
-    break;
-  default:
-    float batteryVoltage = nicla::getCurrentBatteryVoltage();
-    if (batteryVoltage < 3.55){
-      nicla::leds.setColor(red);
-    }
-    break;
-  }
-  
+  movementChar.writeValue(buffer, 24, true);
 }
