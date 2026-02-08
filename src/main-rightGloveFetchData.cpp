@@ -14,7 +14,7 @@ BLECharacteristic movementChar("2A58",
                             24);     // 6 Floats * 4 Bytes = 24 Bytes
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   Serial.println("Starting RightGlove...");
   while (!Serial);
 
@@ -42,7 +42,7 @@ void loop() {
 
   BHY2.update();
 
-  if (millis() - printTime >= 1000) {
+  if (millis() - printTime >= 50) {
     printTime = millis();
 
     sendSensorData();
@@ -61,5 +61,5 @@ void sendSensorData(){
   memcpy(&buffer[16], &gy, 4);
   memcpy(&buffer[20], &gz, 4);
 
-  movementChar.writeValue(buffer, 24);
+  movementChar.writeValue(buffer, 24, true);
 }

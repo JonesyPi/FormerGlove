@@ -3,11 +3,13 @@
 #include "ArduinoBLE.h"
 #include "Arduino_BHY2.h"
 
+// Funktion-Deklarationen
 float* handleLeftValues();
 float* handleRightValues();
 void scanForRightHand();
 void handleValuesLoop();
 void sendViaBLE(float* leftValues, float* rightValues);
+void sendToPC(float* leftValues, float* rightValues);
 
 BLEDevice peripheral;
 BLECharacteristic movementChar;
@@ -19,7 +21,7 @@ SensorXYZ accel(SENSOR_ID_ACC);
 SensorXYZ gyro(SENSOR_ID_GYRO);
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   while (!Serial);
 
   nicla::begin();
@@ -47,7 +49,6 @@ void setup() {
   accel.begin();
   gyro.begin();
 
-  
   BLE.scan();
   delay(1000);
   scanForRightHand();
@@ -79,16 +80,16 @@ void handleValuesLoop(){
       BHY2.update();
 
       float* leftValues = handleLeftValues();
-
       float* rightValues = handleRightValues();
-    if (rightValues == nullptr) {
-      Serial.println("Skipping this loop iteration due to read failure.");
-      continue; // or handle error differently
-    }
+      if (rightValues == nullptr) {
+        Serial.println("Skipping this loop iteration due to read failure.");
+        continue; // oder Fehler anders behandeln
+      }
 
-      sendViaBLE(leftValues, rightValues);
+      sendViaBLE(leftValues, rightValues);  // BLE senden
+      sendToPC(leftValues, rightValues);    // an PC über Serial senden
 
-      delay(1000);
+      delay(50);
     }
 
     Serial.println("Disconnected from RightGlove.");
@@ -102,16 +103,22 @@ float* handleLeftValues() {
   float ax = accel.x(), ay = accel.y(), az = accel.z();  
   float gx = gyro.x(), gy = gyro.y(), gz = gyro.z();
 
-  static float leftValues[6] = {ax, ay, az, gx, gy, gz};
+  static float leftValues[6]; // Array static lassen, damit Pointer zurückgegeben werden kann
+  leftValues[0] = ax;
+  leftValues[1] = ay;
+  leftValues[2] = az;
+  leftValues[3] = gx;
+  leftValues[4] = gy;
+  leftValues[5] = gz;
 
   Serial.println("Left Glove:");
-    Serial.print("acc_X: "); Serial.print(accel.x()); Serial.print(", ");
-    Serial.print("acc_Y: "); Serial.print(accel.y()); Serial.print(", ");
-    Serial.print("acc_Z: "); Serial.println(accel.z());
+  Serial.print("acc_X: "); Serial.print(ax); Serial.print(", ");
+  Serial.print("acc_Y: "); Serial.print(ay); Serial.print(", ");
+  Serial.print("acc_Z: "); Serial.println(az);
 
-    Serial.print("gyro_X: "); Serial.print(gyro.x()); Serial.print(", ");
-    Serial.print("gyro_Y: "); Serial.print(gyro.y()); Serial.print(", ");
-    Serial.print("gyro_Z: "); Serial.println(gyro.z());
+  Serial.print("gyro_X: "); Serial.print(gx); Serial.print(", ");
+  Serial.print("gyro_Y: "); Serial.print(gy); Serial.print(", ");
+  Serial.print("gyro_Z: "); Serial.println(gz);
 
   Serial.println();
 
@@ -126,23 +133,29 @@ float* handleRightValues() {
   }
 
   float ax, ay, az, gx, gy, gz;
-    memcpy(&ax, &buffer[0], 4);
-    memcpy(&ay, &buffer[4], 4);
-    memcpy(&az, &buffer[8], 4);
-    memcpy(&gx, &buffer[12], 4);
-    memcpy(&gy, &buffer[16], 4);
-    memcpy(&gz, &buffer[20], 4);
+  memcpy(&ax, &buffer[0], 4);
+  memcpy(&ay, &buffer[4], 4);
+  memcpy(&az, &buffer[8], 4);
+  memcpy(&gx, &buffer[12], 4);
+  memcpy(&gy, &buffer[16], 4);
+  memcpy(&gz, &buffer[20], 4);
 
-  static float rightValues[6] = {ax, ay, az, gx, gy, gz};
-
+  static float rightValues[6]; 
+  rightValues[0] = ax;
+  rightValues[1] = ay;
+  rightValues[2] = az;
+  rightValues[3] = gx;
+  rightValues[4] = gy;
+  rightValues[5] = gz;
+  
   Serial.println("Right Glove:");
-    Serial.print("acc_X: "); Serial.print(ax); Serial.print(", ");
-    Serial.print("acc_Y: "); Serial.print(ay); Serial.print(", ");
-    Serial.print("acc_Z: "); Serial.println(az);
+  Serial.print("acc_X: "); Serial.print(ax); Serial.print(", ");
+  Serial.print("acc_Y: "); Serial.print(ay); Serial.print(", ");
+  Serial.print("acc_Z: "); Serial.println(az);
 
-    Serial.print("gyro_X: "); Serial.print(gx); Serial.print(", ");
-    Serial.print("gyro_Y: "); Serial.print(gy); Serial.print(", ");
-    Serial.print("gyro_Z: "); Serial.println(gz);
+  Serial.print("gyro_X: "); Serial.print(gx); Serial.print(", ");
+  Serial.print("gyro_Y: "); Serial.print(gy); Serial.print(", ");
+  Serial.print("gyro_Z: "); Serial.println(gz);
 
   Serial.println();
 
@@ -153,14 +166,11 @@ void scanForRightHand(){
   Serial.println("Scanning for RightGlove...");
   while(true){
     peripheral = BLE.available();
-    if( peripheral) {
+    if(peripheral) {
       if (peripheral.localName() == "RightGlove") {
         Serial.println("RightGlove found!");
-        peripheral = peripheral;
         BLE.stopScan();
         break;
-      } else {
-        peripheral = peripheral;
       }
     }
     delay(10);
@@ -183,4 +193,18 @@ void sendViaBLE(float* leftValues, float* rightValues) {
   combinedDataChar.writeValue(buffer, sizeof(buffer));
 }
 
- 
+// --- Neue Funktion: Werte an PC senden ---
+void sendToPC(float* leftValues, float* rightValues) {
+  if (!leftValues || !rightValues) return;
+
+  // Nur die 12 Zahlen, keine Labels
+  for (int i = 0; i < 6; i++) {
+    Serial.print(leftValues[i], 2);
+    Serial.print(",");
+  }
+  for (int i = 0; i < 5; i++) {
+    Serial.print(rightValues[i], 2);
+    Serial.print(",");
+  }
+  Serial.println(rightValues[5], 2);
+}
