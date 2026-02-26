@@ -3,7 +3,7 @@
 #include "ArduinoBLE.h"
 #include "Arduino_BHY2.h"
 
-// Sensoren initialisieren
+// Initialize sensors
 SensorXYZ accel(SENSOR_ID_ACC);
 SensorXYZ gyro(SENSOR_ID_GYRO);
 
@@ -19,21 +19,21 @@ void setup() {
     Serial.begin(9600);
     while (!Serial);
 
-    // Nicla Setup
+    // Nicla setup
     nicla::begin();
     nicla::leds.begin();
     nicla::leds.setColor(blue);
 
     Serial.println("\n=== LeftGlove Booting ===");
 
-    // Sensoren starten
+    // Start sensors
     Serial.println("Initializing BHY2 sensors...");
     BHY2.begin();
     accel.begin();
     gyro.begin();
     Serial.println("Sensors initialized successfully.");
 
-    // BLE Setup
+    // BLE setup
     Serial.println("Starting BLE...");
     if (!BLE.begin()) {
         Serial.println("❌ BLE start failed!");
@@ -55,41 +55,35 @@ void setup() {
 void loop() {
     BLEDevice central = BLE.central();
 
-    // Wenn sich ein Gerät verbindet (z. B. App)
+    // If a device connects (e.g., app)
     if (central) {
         Serial.print("📱 Connected to central device: ");
         Serial.println(central.address());
         boolean start = false;
 
         while (central.connected()) {
-            // Start von Übung von App kontinuierlich abfragen
-            if (start == true){
-                // Übung & Wiederholungen von App abfragen
-                int reps;
-                for (int i = 0; i < reps; i++) {
-                    float rax = accel.x();
-                    float ray = accel.y();
-                    float raz = accel.z();
-                    float rgx = gyro.x();
-                    float rgy = gyro.y();
-                    float rgz = gyro.z();
+            float rax = accel.x();
+            float ray = accel.y();
+            float raz = accel.z();
+            float rgx = gyro.x();
+            float rgy = gyro.y();
+            float rgz = gyro.z();
 
-                    // Daten in Byte-Array umwandeln (z.B. 4 Bytes pro Wert)
-                    byte data[24];
-                    memcpy(data, &rax, 4);
-                    memcpy(data + 4, &ray, 4);
-                    memcpy(data + 8, &raz, 4);
-                    memcpy(data + 12, &rgx, 4);
-                    memcpy(data + 16, &rgy, 4);
-                    memcpy(data + 20, &rgz, 4);
+            // Convert data into byte array (e.g., 4 bytes per value)
+            byte data[24];
+            memcpy(data, &rax, 4);
+            memcpy(data + 4, &ray, 4);
+            memcpy(data + 8, &raz, 4);
+            memcpy(data + 12, &rgx, 4);
+            memcpy(data + 16, &rgy, 4);
+            memcpy(data + 20, &rgz, 4);
 
-                    // Daten über BLE senden
-                    movementChar.writeValue(data, sizeof(data));
-                }
-            }
+            // Send data to app via BLE
+            movementChar.writeValue(data, sizeof(data));
+            delay(50); // 20 Hz send interval
         }
 
-        // Verbindung getrennt
+        // Connection disconnected
         Serial.println("⚠️ Central disconnected.");
         nicla::leds.setColor(red);
         BLE.advertise();
