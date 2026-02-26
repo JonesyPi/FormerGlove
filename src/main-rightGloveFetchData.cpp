@@ -42,7 +42,7 @@ void loop() {
 
   BHY2.update();
 
-  if (millis() - printTime >= 50) {
+  if (millis() - printTime >= 50) { // 20 Hz -> Not 10 Hz to avoid empty packets
     printTime = millis();
 
     sendSensorData();
@@ -50,6 +50,8 @@ void loop() {
 }
 
 void sendSensorData(){
+  // Retrieve sensor values from the left glove and send to the right glove via BLE
+
   float ax = accel.x(), ay = accel.y(), az = accel.z();  
   float gx = gyro.x(), gy = gyro.y(), gz = gyro.z();
 

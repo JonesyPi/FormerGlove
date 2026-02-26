@@ -3,7 +3,7 @@
 #include "ArduinoBLE.h"
 #include "Arduino_BHY2.h"
 
-// Funktion-Deklarationen
+// Function declarations
 float* handleLeftValues();
 float* handleRightValues();
 void scanForRightHand();
@@ -77,17 +77,17 @@ void handleValuesLoop(){
     Serial.println("Movement characteristic found.");
 
     while (peripheral.connected()) {
-      BHY2.update();
+      BHY2.update(); // Update sensor values
 
       float* leftValues = handleLeftValues();
       float* rightValues = handleRightValues();
       if (rightValues == nullptr) {
         Serial.println("Skipping this loop iteration due to read failure.");
-        continue; // oder Fehler anders behandeln
+        continue; 
       }
 
-      sendViaBLE(leftValues, rightValues);  // BLE senden
-      sendToPC(leftValues, rightValues);    // an PC über Serial senden
+      sendViaBLE(leftValues, rightValues);  // send via BLE
+      sendToPC(leftValues, rightValues);    // send to PC via Serial
 
       delay(50);
     }
@@ -100,10 +100,12 @@ void handleValuesLoop(){
 }
 
 float* handleLeftValues() {
+  // Retrieve sensor values from the left glove
+
   float ax = accel.x(), ay = accel.y(), az = accel.z();  
   float gx = gyro.x(), gy = gyro.y(), gz = gyro.z();
 
-  static float leftValues[6]; // Array static lassen, damit Pointer zurückgegeben werden kann
+  static float leftValues[6]; // Keep array static so that pointer can be returned
   leftValues[0] = ax;
   leftValues[1] = ay;
   leftValues[2] = az;
@@ -126,6 +128,8 @@ float* handleLeftValues() {
 }
 
 float* handleRightValues() {
+  // Retrieve sensor values from the right glove from the characteristic and convert into float array
+
   byte buffer[24];
   if (!movementChar.readValue(buffer, 24)) {
     Serial.println("Failed to read from RightGlove.");
@@ -140,7 +144,7 @@ float* handleRightValues() {
   memcpy(&gy, &buffer[16], 4);
   memcpy(&gz, &buffer[20], 4);
 
-  static float rightValues[6]; 
+  static float rightValues[6]; // Number of sensor axes
   rightValues[0] = ax;
   rightValues[1] = ay;
   rightValues[2] = az;
@@ -163,6 +167,8 @@ float* handleRightValues() {
 }
 
 void scanForRightHand(){
+  // Checking if the right glove appears in the BLE scan results and connecting to it
+
   Serial.println("Scanning for RightGlove...");
   while(true){
     peripheral = BLE.available();
@@ -182,6 +188,8 @@ void sendViaBLE(float* leftValues, float* rightValues) {
 
   uint8_t buffer[48];  // 12 floats * 4 bytes
 
+  // Go through all sensor axes and pack them into the buffer
+
   for (int i = 0; i < 6; i++) {
     memcpy(&buffer[i*4], &leftValues[i], 4);
   }
@@ -190,14 +198,14 @@ void sendViaBLE(float* leftValues, float* rightValues) {
     memcpy(&buffer[24 + i*4], &rightValues[i], 4);
   }
 
-  combinedDataChar.writeValue(buffer, sizeof(buffer));
+  combinedDataChar.writeValue(buffer, sizeof(buffer)); 
 }
 
-// --- Neue Funktion: Werte an PC senden ---
 void sendToPC(float* leftValues, float* rightValues) {
   if (!leftValues || !rightValues) return;
 
-  // Nur die 12 Zahlen, keine Labels
+  // Go through all sensor axes and output them via Serial
+
   for (int i = 0; i < 6; i++) {
     Serial.print(leftValues[i], 2);
     Serial.print(",");
@@ -206,5 +214,5 @@ void sendToPC(float* leftValues, float* rightValues) {
     Serial.print(rightValues[i], 2);
     Serial.print(",");
   }
-  Serial.println(rightValues[5], 2);
+  Serial.println(rightValues[5], 2); // Last value without comma
 }
