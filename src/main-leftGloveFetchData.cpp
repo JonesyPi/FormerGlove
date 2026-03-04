@@ -170,7 +170,7 @@ void scanForRightHand(){
   // Checking if the right glove appears in the BLE scan results and connecting to it
 
   Serial.println("Scanning for RightGlove...");
-  while(true){
+  while(true){ // It endlessly scans until it finds the right glove, as nothing else should run without this connection
     peripheral = BLE.available();
     if(peripheral) {
       if (peripheral.localName() == "RightGlove") {
@@ -179,7 +179,7 @@ void scanForRightHand(){
         break;
       }
     }
-    delay(10);
+    delay(10); // small delay to avoid 100% CPU usage while scanning -> longer battery life
   }
 }
 

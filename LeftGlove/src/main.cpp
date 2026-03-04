@@ -1,5 +1,21 @@
 #include "Arduino.h"
 #include "Nicla_System.h"
+#ifdef t_2_10s
+  #undef t_2_10s
+#endif
+#ifdef T1
+  #undef T1
+#endif
+#ifdef T2
+  #undef T2
+#endif
+#ifdef T4
+  #undef T4
+#endif
+#ifdef T8
+  #undef T8
+#endif
+
 #include "ArduinoBLE.h"
 #include "Arduino_BHY2.h"
 #include "Bench_Press_v3_inferencing.h"
