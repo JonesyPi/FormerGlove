@@ -1,42 +1,63 @@
 # FormerGlove
 
-Daniel:
+## 🧠 Abstract
 
-First Test:
+Effective strength training relies heavily on correct technique. However, many athletes perform exercises with poor form, which increases the risk of injury and reduces training efficiency. While professional coaching can solve this issue, it is often too expensive or inaccessible for the average gym-goer.
 
-Arduino IDE
+To address this problem, we developed **Former Glove** — a smart wearable system that acts as a digital coach.
 
-Board:
-Nicla Sense ME
+The project consists of sensor-equipped gloves that track hand movements during weightlifting. Using intelligent software, the system analyzes exercises in real time to:
 
-Board Manager:
-Arduino Mbed OS Nicla Boards
+- Detect mistakes in form  
+- Automatically count repetitions  
 
-This code changes the colour of the Nicla's LED periodically, so I used it just to check if the Nicla works correctly.
+This feedback is transmitted wirelessly to a mobile application, allowing users to evaluate their performance immediately after each set.
 
+By providing instant, automated guidance, Former Glove delivers the benefits of professional coaching without the high cost — helping users train more safely and effectively.
 
-Connecting to Periphials via BLE:
+---
 
-Libraries:
-ArduinoBLE
+## 📁 Repository Structure
 
-This is a minimalized code to connect the Nicla Sense to a periphial and toggle the built-in LED. I'm using LightBlue on iOS to connect and write a hex value (00 -> LED off; 01 -> LED on)
+This repository contains the part of the project developed by **Daniel Jones**.
 
+In addition to the main folders, various files document the development process of Former Glove.
 
-Testing the Sensors:
+### 📦 Folder Overview
 
-Libraries:
-Arduino
-Arduino_BHY2
+- **`3D/`**  
+  Contains all final versions of the 3D housing models, created using Autodesk Fusion.
 
-Here, I tested the IMU sensor of the Nicla Sense, which includes an accelerometer and a gyroscope. These will be used to measure the movement and rotation of the glove.
+- **`csv/`**  
+  Includes movement datasets that were manually recorded for AI training.
 
+- **`LeftGlove/` & `RightGlove/`**  
+  Final code for each glove.  
+  ⚠️ These projects must be opened separately, as the two Edge Impulse libraries will conflict during compilation.
 
-Transfering Sensor Data between Niclas:
+- **`src/`**  
+  Contains code used for testing and data collection.
 
-On the right glove, I read data periodically and send it to the left glove via BLE, on which I print out the sensor data of both hands simultaneously. It is important to search the periphial by name manually as the scanForName function is inprecise with custom devices. I also implemented a one second delay after starting the scan, which is necessary for the initialisation.
+---
 
+## 🚀 Project Goal
 
-Running code from VS Code:
+Former Glove aims to make professional-level training feedback accessible to everyone by combining:
 
-I changed the structure to have a FOlder named src with all codes in it, as this is the standard on PlatformIO. After that, I created different environments for each hand in platformio.ini and added a src filter so it uploads the right code.
+- Wearable hardware  
+- Real-time motion tracking  
+- Intelligent analysis software  
+
+---
+
+## 📌 Notes
+
+- Make sure to open glove projects individually to avoid library conflicts  
+- Data in `/csv` was used for training machine learning models  
+- Development documentation is included in the root directory  
+
+---
+
+## 👤 Author
+
+**Daniel Jones**
