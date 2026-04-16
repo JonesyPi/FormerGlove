@@ -1,11 +1,27 @@
-#include "Arduino.h"
-#include "Nicla_System.h"
-#include "ArduinoBLE.h"
-#include "Arduino_BHY2.h"
-#include "Bench_Press_v3_inferencing.h"
+#include <Arduino.h>
+#include <Nicla_System.h>
+
+#ifdef t_2_10s
+    #undef t_2_10s
+#endif
+#ifdef T1
+    #undef T1
+#endif
+#ifdef T2
+    #undef T2
+#endif
+#ifdef T4
+    #undef T4
+#endif
+#ifdef T8
+    #undef T8
+#endif
+
+#include <ArduinoBLE.h>
+#include <Arduino_BHY2.h>
+#include <Bench_Press_93_inferencing.h>
 
 const int AXES_PER_SAMPLE = 12;
-
 const int MAX_SAMPLES_BP_STATE = 6;
 const int SHIFT_STEP_BP_STATE = 3;
 const int SAMPLES_TO_KEEP_BP_STATE = MAX_SAMPLES_BP_STATE - SHIFT_STEP_BP_STATE;
@@ -26,48 +42,14 @@ SensorXYZ gyro(SENSOR_ID_GYRO);
 
 BLEService gloveService("12345678-1234-5678-1234-56789abcdef0");
 
-BLECharacteristic movementChar("12345678-1234-5678-1234-56789abcdef1",
-   BLERead | BLENotify,
-   24);
-
-BLECharacteristic rxChar(
-    "12345678-1234-5678-1234-56789abcdef2",
-    BLEWrite | BLEWriteWithoutResponse,
-    4
-);
-
-BLECharacteristic labelChar(
-    "12345678-1234-5678-1234-56789abcdef3",
-    BLERead | BLENotify,
-    1
-);
+BLECharacteristic movementChar("12345678-1234-5678-1234-56789abcdef1", BLERead | BLENotify, 24);
+BLECharacteristic rxChar("12345678-1234-5678-1234-56789abcdef2", BLEWrite | BLEWriteWithoutResponse, 4);
+BLECharacteristic labelChar("12345678-1234-5678-1234-56789abcdef3", BLERead | BLENotify, 1);
 
 BLEDevice rightPeripheral;
 BLECharacteristic rightDataChar;
 BLECharacteristic controlChar;
 BLECharacteristic classificationChar;
-
-// Prototypes
-float* handleRightValues();
-float* handleLeftValues();
-void scanForRightHand();
-void fillFeatures_bp_form(float* leftValues, float* rightValues, int index);
-void classify_bp_form();
-
-// refactored helpers (same names as before)
-void ensureRightConnected();
-void handleCentral(BLEDevice central);
-void readAppCommand();
-void executeWorkout(BLEDevice central);
-void performRep(BLEDevice central);
-void handleExerciseInit();
-void processSample(bool &end_of_rep,
-                   int &measurement_count_form,
-                   int &measurement_count_state,
-                   int &total_running,
-                   int &total_end,
-                   bool &end);
-void sendLabelToApp(int best_label_idx);
 
 // State
 bool start_command = false;
@@ -75,81 +57,77 @@ int total_reps = 0;
 int weight = 0;
 int exercise = 0;
 
+// Function prototypes
+float* handleRightValues();
+float* handleLeftValues();
+void scanForRightHand();
+void fillFeatures_bp_form(float* leftValues, float* rightValues, int index);
+void classify_bp_form();
+void ensureRightConnected();
+void handleCentral(BLEDevice central);
+void readAppCommand();
+void executeWorkout(BLEDevice central);
+void performRep(BLEDevice central);
+void handleExerciseInit();
+void processSample(bool &end_of_rep, int &measurement_count_form, int &measurement_count_state, int &total_running, int &total_end, bool &end);
+void sendLabelToApp(int best_label_idx);
+
 void setup() {
-    Serial.begin(115200);
     nicla::begin();
     nicla::leds.begin();
+    nicla::leds.setColor(green);
 
     BHY2.begin();
     accel.begin();
     gyro.begin();
 
-    if (!BLE.begin()) {
-        while (1);
-    }
+    if (!BLE.begin()) while (1);
 
     BLE.setDeviceName("LeftGlove");
     BLE.setLocalName("LeftGlove");
     BLE.setAdvertisedService(gloveService);
+
     gloveService.addCharacteristic(movementChar);
     gloveService.addCharacteristic(rxChar);
     gloveService.addCharacteristic(labelChar);
     BLE.addService(gloveService);
     BLE.advertise();
-
-    Serial.println("System initialized.");
 }
 
 void loop() {
-    // Keep sensors updated
     BHY2.update();
-
-    // Ensure connection to partner glove
     ensureRightConnected();
 
-    // Check for app connection (central)
     BLEDevice central = BLE.central();
-    if (central) {
-        handleCentral(central);
-    }
-}
+    BLE.poll();
+    if (central) handleCentral(central);
 
-/* ---------------------------
-   Implementations
-   --------------------------- */
+    delay(20);
+}
 
 void ensureRightConnected() {
     if (!rightPeripheral || !rightPeripheral.connected()) {
-        nicla::leds.setColor(blue);
-        Serial.println("RightGlove not connected. Scanning...");
         BLE.scan();
         scanForRightHand();
-        nicla::leds.setColor(green);
     }
 }
 
 void handleCentral(BLEDevice central) {
-    Serial.print("📱 App Connected: ");
-    Serial.println(central.address());
-
     while (central.connected()) {
-        // If partner disconnected, break and restart scanning
-        if (!rightPeripheral.connected()) {
-            Serial.println("RightGlove lost during session!");
-            break;
-        }
+        BLE.poll();
 
-        // Read incoming app commands (rxChar)
+        if (!rightPeripheral.connected()) break;
+
         readAppCommand();
 
-        // If a start command was received, run the workout sequence
         if (start_command) {
             executeWorkout(central);
             start_command = false;
         }
+
+        delay(10);
     }
 
-    Serial.println("⚠️ App disconnected or Partner lost.");
     nicla::leds.setColor(red);
     BLE.advertise();
 }
@@ -160,7 +138,7 @@ void readAppCommand() {
     byte buffer[4];
     rxChar.readValue(buffer, 4);
 
-    if (buffer[0] == 1) {   // Start-Flag
+    if (buffer[0] == 1) {
         start_command = true;
         exercise = buffer[1];
         total_reps = buffer[2];
@@ -183,22 +161,16 @@ void performRep(BLEDevice central) {
     int total_end = 0;
     bool end = false;
 
-    // init for exercise (sends control signal 1)
     handleExerciseInit();
 
-    // inner sampling / inference loop for a single repetition
     while (!end_of_rep) {
+        BHY2.update();
+        BLE.poll();
         if (!central.connected() || !rightPeripheral.connected()) break;
 
-        processSample(end_of_rep,
-                      measurement_count_form,
-                      measurement_count_state,
-                      total_running,
-                      total_end,
-                      end);
+        processSample(end_of_rep, measurement_count_form, measurement_count_state, total_running, total_end, end);
     }
 
-    // at end of rep, run form classifier pooling and send best label
     int best_label_idx = 0;
     if (exercise == 0) {
         classify_bp_form();
@@ -222,16 +194,7 @@ void handleExerciseInit() {
     controlChar.writeValue(&signal, 1);
 }
 
-/* processSample: single timed sampling / messaging / state update
-   -- NOTE: logic preserved exactly from your original code
-*/
-void processSample(bool &end_of_rep,
-                   int &measurement_count_form,
-                   int &measurement_count_state,
-                   int &total_running,
-                   int &total_end,
-                   bool &end)
-{
+void processSample(bool &end_of_rep, int &measurement_count_form, int &measurement_count_state, int &total_running, int &total_end, bool &end) {
     static unsigned long lastSampleTime = 0;
 
     unsigned long now = millis();
@@ -242,10 +205,8 @@ void processSample(bool &end_of_rep,
     float* rightValues = handleRightValues();
 
     if (!leftValues || !rightValues) return;
-
     if (exercise != 0) return;
 
-    // fill sliding window for form classifier
     fillFeatures_bp_form(leftValues, rightValues, measurement_count_form);
     measurement_count_form++;
 
@@ -254,25 +215,21 @@ void processSample(bool &end_of_rep,
         measurement_count_form = SAMPLES_TO_KEEP_BP_FORM;
     }
 
-    // send rightValues + measurement_count_state to app via movementChar (25 bytes)
     byte buffer[25];
-    memcpy(&buffer[0], &rightValues, 24);
-    memcpy(&buffer[24], &measurement_count_state, 1);
-    movementChar.writeValue(buffer, 25);
+    memcpy(buffer, leftValues, 24);
+    buffer[24] = (uint8_t)measurement_count_state;
+    classificationChar.writeValue(buffer, 25);
 
-    // notify RightGlove to shift buffer (signal 2)
     byte signal = 2;
     controlChar.writeValue(&signal, 1);
 
     measurement_count_state++;
 
-    // if enough state samples, request classification from RightGlove (signal 3)
     if (measurement_count_state >= MAX_SAMPLES_BP_STATE) {
         byte signal = 3;
         controlChar.writeValue(&signal, 1);
         measurement_count_state = SAMPLES_TO_KEEP_BP_STATE;
 
-        // wait for classificationChar update from RightGlove
         while (true) {
             if (classificationChar.valueUpdated()) {
                 byte result;
@@ -283,13 +240,11 @@ void processSample(bool &end_of_rep,
         }
     }
 
-    // update counters for end-of-rep voting logic
     if (!end) {
         total_running++;
     } else {
-        total_end++;
-        if (total_running >= 2 &&
-            (float)total_end / (float)(total_running + total_end) > 0.3) {
+        if (total_running >= 1) total_end++;
+        if (total_running >= 2 && (float)total_end / (float)(total_running + total_end) > 0.3) {
             end_of_rep = true;
         }
     }
@@ -300,29 +255,18 @@ void sendLabelToApp(int best_label_idx) {
     labelChar.writeValue(&idx, 1);
 }
 
-/* ---------------------------
-   Unchanged helper functions (IO)
-   --------------------------- */
-
 void scanForRightHand() {
-    while (true) {
-        rightPeripheral = BLE.available();
-        if (rightPeripheral) {
-            if (rightPeripheral.localName() == "RightGlove") {
-                Serial.println("Found RightGlove!");
-                if (rightPeripheral.connect()) {
-                    rightPeripheral.discoverAttributes();
-                    rightDataChar = rightPeripheral.service("180C").characteristic("2A58");
-                    controlChar = rightPeripheral.service("180C").characteristic("2A59");
-                    classificationChar = rightPeripheral.service("180C").characteristic("2A5A");
-                    if (rightDataChar) {
-                        BLE.stopScan();
-                        break;
-                    }
-                }
-            }
+    rightPeripheral = BLE.available();
+
+    if (rightPeripheral && rightPeripheral.localName() == "RightGlove") {
+        if (rightPeripheral.connect()) {
+            rightPeripheral.discoverAttributes();
+            rightDataChar = rightPeripheral.service("180C").characteristic("2A58");
+            controlChar = rightPeripheral.service("180C").characteristic("2A59");
+            classificationChar = rightPeripheral.service("180C").characteristic("2A5A");
+
+            if (rightDataChar) BLE.stopScan();
         }
-        delay(10);
     }
 }
 

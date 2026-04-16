@@ -1,0 +1,10 @@
+{
+    "target_overrides": {
+        "NICLA": {
+            "target.features_remove": ["STORAGE", "LWIP", "FILESYSTEM"],
+            "target.components_remove": ["FLASHIAP"],
+            "target.macros_remove": ["MBEDTLS_CONFIG_FILE"],
+            "target.printf_lib": "minimal-printf"
+        }
+    }
+}
